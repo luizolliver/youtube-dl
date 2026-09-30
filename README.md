@@ -34,6 +34,8 @@ npm start
 
 Na primeira vez que o app abre, ele baixa o `yt-dlp.exe` mais recente do GitHub para `%APPDATA%\Vela\bin`. O FFmpeg vem do pacote `ffmpeg-static`, instalado pelo `npm install`.
 
+Em modo de desenvolvimento, o Vela cria no Menu Iniciar o atalho **Vela (desenvolvimento)**. O Windows usa esse atalho para mostrar o nome e o ícone do Vela nas notificações e para reabrir o app ao clicar nelas. Na versão instalada, o próprio instalador cria o atalho.
+
 ## Como gerar o instalador
 
 Rode no próprio Windows, porque o `ffmpeg-static` instala o FFmpeg da plataforma em que o `npm install` foi executado:

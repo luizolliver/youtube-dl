@@ -13,6 +13,12 @@ const { POPULAR, siteFor, isUrl } = require('./sites');
 
 const ROOT = path.join(__dirname, '..', '..');
 const ICON = path.join(ROOT, 'build', 'icon.png');
+const ICON_ICO = path.join(ROOT, 'build', 'icon.ico');
+const IS_WIN = process.platform === 'win32';
+// Windows groups taskbar buttons and names notifications by this ID. The
+// development build gets its own ID so it never mixes with an installed copy.
+const APP_ID = app.isPackaged ? 'com.vela.downloader' : 'com.vela.downloader.dev';
+const APP_NAME = 'Vela';
 const BG = { light: '#E7E9EF', dark: '#07080B' };
 
 let win = null;
@@ -21,14 +27,51 @@ let quitting = false;
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  app.on('second-instance', () => {
-    if (!win) return;
-    if (win.isMinimized()) win.restore();
-    win.focus();
-  });
+  // Also fires when Windows relaunches the app from a notification
+  app.on('second-instance', () => showWindow());
 }
 
-app.setAppUserModelId('com.vela.downloader');
+app.setName(APP_NAME);
+app.setAppUserModelId(APP_ID);
+
+// Windows reads the name and icon shown in notifications (and relaunches the
+// app when one is clicked) from a Start Menu shortcut carrying the app's ID.
+// The installer creates it for packaged builds; in development we create one
+// ourselves, otherwise toasts say "Electron" and clicking them opens
+// Electron's default window instead of Vela.
+function ensureDevShortcut() {
+  if (!IS_WIN || app.isPackaged) return;
+  try {
+    const link = path.join(app.getPath('appData'), 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Vela (desenvolvimento).lnk');
+    const details = {
+      target: process.execPath,
+      args: `"${ROOT}"`,
+      cwd: ROOT,
+      description: 'Vela em modo de desenvolvimento',
+      icon: ICON_ICO,
+      iconIndex: 0,
+      appUserModelId: APP_ID
+    };
+    let current = null;
+    try { current = shell.readShortcutLink(link); } catch { /* not created yet */ }
+    const upToDate = current && current.target === details.target && current.args === details.args &&
+      current.appUserModelId === APP_ID && current.icon === ICON_ICO;
+    if (!upToDate) shell.writeShortcutLink(link, current ? 'replace' : 'create', details);
+  } catch (err) {
+    console.error('Não foi possível registrar o atalho de desenvolvimento', err);
+  }
+}
+
+// Notifications must stay referenced until the user acts on them; if one is
+// garbage-collected, Windows can no longer deliver its click to this process.
+const liveNotifications = new Set();
+
+function showWindow() {
+  if (!win || win.isDestroyed()) return;
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+}
 
 const send = (channel, payload) => {
   if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
@@ -77,12 +120,15 @@ function notify(job) {
     icon: ICON,
     silent: false
   });
+  const release = () => liveNotifications.delete(n);
   n.on('click', () => {
-    if (!win) return;
-    win.show();
-    win.focus();
-    if (job.status === 'done' && job.files && job.files[0]) shell.showItemInFolder(job.files[0]);
+    release();
+    showWindow();
+    if (job.status === 'done' && job.files && job.files[0] && fs.existsSync(job.files[0])) shell.showItemInFolder(job.files[0]);
   });
+  n.on('close', release);
+  n.on('failed', release);
+  liveNotifications.add(n);
   n.show();
 }
 
@@ -134,8 +180,8 @@ function createWindow() {
     minHeight: 660,
     frame: false,
     show: false,
-    title: 'Vela',
-    icon: ICON,
+    title: APP_NAME,
+    icon: IS_WIN ? ICON_ICO : ICON,
     backgroundColor: nativeTheme.shouldUseDarkColors ? BG.dark : BG.light,
     webPreferences: {
       preload: path.join(__dirname, '..', 'preload', 'preload.js'),
@@ -146,6 +192,17 @@ function createWindow() {
     }
   });
   if (b.maximized) win.maximize();
+  if (IS_WIN) {
+    // Taskbar button: our icon and name instead of Electron's, and "pin to
+    // taskbar" relaunches Vela rather than the bare Electron binary.
+    win.setAppDetails({
+      appId: APP_ID,
+      appIconPath: app.isPackaged ? process.execPath : ICON_ICO,
+      appIconIndex: 0,
+      relaunchCommand: app.isPackaged ? `"${process.execPath}"` : `"${process.execPath}" "${ROOT}"`,
+      relaunchDisplayName: APP_NAME
+    });
+  }
 
   win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
   win.once('ready-to-show', () => win.show());
@@ -295,6 +352,7 @@ function registerIpc() {
 // ---------------------------------------------------------------------------
 
 app.whenReady().then(() => {
+  ensureDevShortcut();
   registerIpc();
   createWindow();
   watchClipboard();

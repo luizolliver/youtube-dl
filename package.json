@@ -31,6 +31,7 @@
     "files": [
       "src/**/*",
       "build/icon.png",
+      "build/icon.ico",
       "package.json",
       "!**/*.map"
     ],
@@ -56,7 +57,7 @@
           ]
         }
       ],
-      "icon": "build/icon.png",
+      "icon": "build/icon.ico",
       "artifactName": "Vela-Setup-${version}.${ext}"
     },
     "nsis": {
@@ -66,7 +67,9 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "Vela",
-      "language": "1046"
+      "language": "1046",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico"
     }
   }
 }
