@@ -60,7 +60,7 @@ O comando baixa o `yt-dlp.exe` para `resources/bin`, que vai embutido no instala
 
 Vídeos privados, com restrição de idade ou exclusivos para membros exigem login. O YouTube também pode pedir a confirmação "não sou um robô". Nesses casos, o Vela mostra o botão **Entrar com o YouTube** ao lado do erro. Ele também fica em **Configurações → Login para vídeos com restrição**.
 
-- **Contas no Vela (padrão):** a página de login do próprio site abre numa janela do Vela, com uma sessão de navegador separada. Quando o login termina, a janela fecha sozinha e o download é tentado de novo. Os cookies do site ficam em `%APPDATA%\Vela\cookies.txt`, só neste computador, e o yt-dlp os lê com `--cookies`. "Sair" apaga o login daquele site.
+- **Contas no Vela (padrão):** ao clicar em **Entrar**, o Vela abre o Google Chrome, o Microsoft Edge ou o Brave instalado no PC (nessa ordem de preferência), num perfil separado que só o Vela usa. Você faz login normalmente, e o Google aceita porque é um navegador de verdade. O Vela lê os cookies do site pelo protocolo DevTools do próprio navegador, salva em `%APPDATA%\Vela\cookies.txt` e fecha a janela sozinho. O yt-dlp lê esse arquivo com `--cookies`. Como é o próprio navegador que entrega os cookies, a criptografia de cookies do Chrome no Windows não atrapalha. Sem nenhum desses navegadores, o login abre numa janela do Vela, o que funciona na maioria dos sites, mas o Google costuma recusar.
 - **Importar cookies.txt:** se o Google recusar o login dentro do app, exporte os cookies no seu navegador com uma extensão como "Get cookies.txt LOCALLY" e importe o arquivo. Os logins importados se juntam aos que já existem.
 - **Navegador instalado:** o yt-dlp lê o login direto do navegador (`--cookies-from-browser`). No Windows, o Firefox é o mais confiável. As versões recentes do Chrome e do Edge protegem os cookies e geralmente não funcionam.
 
@@ -71,7 +71,8 @@ src/main/main.js        janela, IPC, área de transferência, notificações
 src/main/ytdlp.js       instalação do motor, leitura de metadados, downloads e progresso
 src/main/downloads.js   fila com pausar, continuar e cancelar
 src/main/settings.js    configurações e histórico (JSON em %APPDATA%\Vela)
-src/main/auth.js        login dentro do app e o cookies.txt usado pelo yt-dlp
+src/main/auth.js        logins por site e o cookies.txt usado pelo yt-dlp
+src/main/browser-login.js  abre o Chrome/Edge com o perfil do Vela e lê os cookies via DevTools
 src/main/sites.js       sites populares e detecção de links
 src/preload/preload.js  ponte segura entre a interface e o processo principal
 src/renderer/           interface (HTML, CSS e JS, sem framework)

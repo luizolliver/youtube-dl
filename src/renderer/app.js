@@ -274,17 +274,27 @@
   }
 
   let signingIn = false;
+  $('#loginCancel').addEventListener('click', () => api.auth.cancel());
   async function signIn(siteId) {
     if (signingIn) return false;
     signingIn = true;
-    toast(`Entre na sua conta do ${siteName(siteId)} na janela que abriu. Ela fecha sozinha quando o login terminar.`, { duration: 7000 });
+    const name = siteName(siteId);
+    const browser = S.auth && S.auth.loginBrowser;
+    $('#loginMark').textContent = name[0];
+    $('#loginMark').style.setProperty('--h', hueOf(name));
+    $('#loginTitle').textContent = `Entre no ${name}`;
+    $('#loginTxt').textContent = browser
+      ? `Abrimos o ${browser} numa janela separada, só para o Vela. Entre na sua conta por lá. A janela fecha sozinha quando o login terminar.`
+      : `Entre na sua conta na janela que abriu. Ela fecha sozinha quando o login terminar.`;
+    $('#loginWait').hidden = false;
     const r = await api.auth.login(siteId);
+    $('#loginWait').hidden = true;
     signingIn = false;
     if (r.status) S.auth = r.status;
     S.settings = await api.settings.set({});
     if (S.view === 'settings') renderSettings();
     if (!r.ok) { toast(r.error, { error: true, duration: 8000 }); return false; }
-    if (!r.connected) { toast('O login não foi concluído. Tente de novo quando quiser.'); return false; }
+    if (!r.connected) { if (!r.canceled) toast('O login não foi concluído. Tente de novo quando quiser.'); return false; }
     toast(`Conectado ao ${siteName(siteId)}`);
     return true;
   }
@@ -1007,6 +1017,8 @@
           ? `<button class="btn btn-ghost btn-sm" type="button" data-logout="${a.id}">Sair</button>`
           : `<button class="btn btn-ghost btn-sm" type="button" data-login="${a.id}">Entrar</button>`}</div>
       </div>`).join('');
+    $('#authHow').hidden = !st.loginBrowser;
+    if (st.loginBrowser) $('#authHow').textContent = `Ao clicar em Entrar, o login abre no ${st.loginBrowser}, num perfil separado que só o Vela usa. Seu navegador do dia a dia não é alterado.`;
     const info = $('#authFileInfo');
     info.hidden = !st.hasFile;
     if (st.hasFile) {

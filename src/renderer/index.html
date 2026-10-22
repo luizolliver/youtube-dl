@@ -282,7 +282,7 @@
         <section class="set-group" id="setAuth">
           <h2>Login para vídeos com restrição</h2>
           <div class="set-row col">
-            <div class="set-txt"><b>Entre com sua conta</b><small>Necessário para vídeos privados, com restrição de idade, exclusivos para membros, ou quando o YouTube pedir confirmação de que você não é um robô. O login fica salvo só neste computador.</small></div>
+            <div class="set-txt"><b>Entre com sua conta</b><small>Necessário para vídeos privados, com restrição de idade, exclusivos para membros, ou quando o YouTube pedir confirmação de que você não é um robô. O login fica salvo só neste computador.</small><small id="authHow" hidden></small></div>
             <div class="seg" id="setAuthSource"><span class="thumbsel"></span><button type="button" data-v="vela">Contas no Vela</button><button type="button" data-v="browser">Navegador instalado</button></div>
           </div>
           <div id="authVela">
@@ -333,6 +333,16 @@
         Velocidade total <b id="totalSpeed">0 MB/s</b>
       </div>
     </aside>
+  </div>
+
+  <div class="overlay" id="loginWait" hidden>
+    <div class="setup-card">
+      <i class="mk lg" id="loginMark">Y</i>
+      <h1 class="h-md" id="loginTitle">Entre no YouTube</h1>
+      <p class="lead" id="loginTxt"></p>
+      <div class="setup-meta wait-row"><span class="spin"></span>Aguardando o login…</div>
+      <button class="btn btn-ghost" type="button" id="loginCancel">Cancelar</button>
+    </div>
   </div>
 
   <div class="overlay" id="setup" hidden>

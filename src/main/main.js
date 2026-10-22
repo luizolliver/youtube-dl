@@ -358,6 +358,7 @@ function registerIpc() {
     showWindow();
     return { ...r, status: auth.status() };
   });
+  ipcMain.handle('auth:cancel', () => auth.cancelLogin());
   ipcMain.handle('auth:logout', async (_e, siteId) => {
     await auth.logout(siteId);
     return auth.status();

@@ -8,6 +8,7 @@
 const fs = require('fs');
 const path = require('path');
 const { app, BrowserWindow, session } = require('electron');
+const browserLogin = require('./browser-login');
 
 const PARTITION = 'persist:vela-login';
 
@@ -45,6 +46,8 @@ const SITES = [
 ];
 
 const cookieFile = () => path.join(app.getPath('userData'), 'cookies.txt');
+// Browser profile used only for signing in; it is separate from the user's own
+const profileDir = () => path.join(app.getPath('userData'), 'login-browser');
 const siteById = id => SITES.find(s => s.id === id);
 const onDomain = (domain, base) => {
   const d = String(domain || '').replace(/^#HttpOnly_/, '').replace(/^\./, '').toLowerCase();
@@ -137,14 +140,54 @@ function loginSession() {
 
 let activeLogin = null;
 
-// Opens the sign-in window and resolves when the user is signed in or closes it.
-function login(siteId, { parent, icon } = {}) {
+const markerFound = (site, cookies) =>
+  cookies.some(c => onDomain(c.domain, site.marker.domain) && site.marker.names.includes(c.name));
+
+// Signs in to a site and resolves with { ok, connected } once the user is
+// signed in, closes the window, or cancels. Prefers a real installed browser,
+// since Google blocks sign-in inside embedded app windows.
+function login(siteId, opts = {}) {
   const site = siteById(siteId);
   if (!site) return Promise.resolve({ ok: false, error: 'Esse site não tem login pelo Vela.' });
   if (activeLogin) {
-    activeLogin.win.focus();
+    if (activeLogin.win) activeLogin.win.focus();
     return activeLogin.promise;
   }
+  const browser = browserLogin.findBrowser();
+  if (browser) return loginWithBrowser(site, browser);
+  return loginEmbedded(site, opts);
+}
+
+function loginWithBrowser(site, browser) {
+  const session = browserLogin.run({
+    browser,
+    profileDir: profileDir(),
+    url: site.login,
+    isDone: cookies => markerFound(site, cookies)
+  });
+  const promise = session.promise.then(r => {
+    activeLogin = null;
+    if (r.ok && r.connected && r.cookies) {
+      exportSite(site, r.cookies);
+      return { ok: true, connected: true, browser: browser.name };
+    }
+    return { ok: r.ok, connected: r.ok ? isSignedIn(site) : false, error: r.error, browser: browser.name, canceled: r.canceled };
+  }, err => {
+    activeLogin = null;
+    return { ok: false, error: 'Não foi possível concluir o login: ' + err.message };
+  });
+  activeLogin = { promise, cancel: session.cancel, browser: browser.name };
+  return promise;
+}
+
+function cancelLogin() {
+  if (activeLogin && activeLogin.cancel) activeLogin.cancel();
+  else if (activeLogin && activeLogin.win && !activeLogin.win.isDestroyed()) activeLogin.win.close();
+}
+
+// Fallback when no Chromium-based browser is installed: the login page in a
+// Vela window. Works for most sites; Google may refuse it.
+function loginEmbedded(site, { parent, icon } = {}) {
 
   const ses = loginSession();
   const win = new BrowserWindow({
@@ -191,14 +234,16 @@ function login(siteId, { parent, icon } = {}) {
       }
     };
 
-    win.webContents.on('did-navigate', (_e, url) => {
+    const onNavigate = (_e, url) => {
       if (/accounts\.google\.com\/.*(signin\/rejected|deniedsigninrejected)/i.test(url)) {
         finish({
           ok: false,
-          error: 'O Google não permitiu o login dentro do Vela. Use "Importar cookies.txt" ou o login de um navegador instalado, em Configurações.'
+          error: 'O Google não permitiu o login dentro do Vela. Use "Importar cookies.txt" em Configurações.'
         });
       }
-    });
+    };
+    win.webContents.on('did-navigate', onNavigate);
+    win.webContents.on('did-navigate-in-page', onNavigate);
     win.on('closed', () => finish({ ok: true, connected: isSignedIn(site) }));
     timer = setInterval(check, 1000);
   });
@@ -231,6 +276,7 @@ async function logout(siteId) {
 async function clearAll() {
   writeLines([]);
   await loginSession().clearStorageData();
+  try { fs.rmSync(profileDir(), { recursive: true, force: true }); } catch { /* browser still open */ }
 }
 
 // Adds a cookies.txt exported from a browser extension. Its cookies replace
@@ -259,6 +305,7 @@ function status() {
   return {
     sites: SITES.map(s => ({ id: s.id, name: s.name, connected: isSignedIn(s, lines) })),
     hasFile: lines.length > 0,
+    loginBrowser: (browserLogin.findBrowser() || {}).name || null,
     otherCookies: extra,
     updatedAt: mtime
   };
@@ -273,4 +320,4 @@ function cookieArgs(settings) {
   return fs.existsSync(cookieFile()) ? ['--cookies', cookieFile()] : [];
 }
 
-module.exports = { SITES, login, logout, clearAll, importFile, status, cookieArgs, siteIdForUrl, isSignedIn: id => isSignedIn(siteById(id)) };
+module.exports = { SITES, login, cancelLogin, logout, clearAll, importFile, status, cookieArgs, siteIdForUrl, isSignedIn: id => isSignedIn(siteById(id)) };

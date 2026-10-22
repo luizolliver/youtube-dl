@@ -41,6 +41,7 @@ contextBridge.exposeInMainWorld('vela', {
   auth: {
     status: () => ipcRenderer.invoke('auth:status'),
     login: siteId => ipcRenderer.invoke('auth:login', siteId),
+    cancel: () => ipcRenderer.invoke('auth:cancel'),
     logout: siteId => ipcRenderer.invoke('auth:logout', siteId),
     clear: () => ipcRenderer.invoke('auth:clear'),
     importFile: () => ipcRenderer.invoke('auth:import')

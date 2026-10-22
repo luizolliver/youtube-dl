@@ -443,3 +443,8 @@ h2{font-size:13px;margin:0;font-weight:600}
 .acct-state{display:inline-flex;align-items:center;gap:6px}
 .acct-state .dot{width:6px;height:6px}
 .ok-note{color:var(--ok)!important}
+
+/* waiting for sign-in */
+.mk.lg{width:52px;height:52px;border-radius:15px;font-size:22px}
+.wait-row{display:flex;align-items:center;gap:8px}
+.wait-row .spin{width:13px;height:13px;border-width:1.5px}
