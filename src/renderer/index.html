@@ -150,6 +150,13 @@
               <button type="button" class="tg" data-tg="subtitles" id="tgSubs"><span><b>Legendas em português</b><small>Incorporadas ao vídeo quando disponíveis</small></span><i class="sw"></i></button>
               <button type="button" class="tg" data-tg="saveThumbnail"><span><b>Salvar miniatura</b><small>Imagem .jpg ao lado do arquivo</small></span><i class="sw"></i></button>
             </div>
+            <div class="chap" id="chapBox" hidden>
+              <button type="button" class="tg" data-tg="splitChapters" id="tgChapters"><span><b>Dividir por capítulos</b><small id="chapHint"></small></span><i class="sw"></i></button>
+              <div class="chap-more" id="chapMore" hidden>
+                <button type="button" class="tg tg-sub" data-tg="keepFullVideo"><span><b>Manter também o arquivo completo</b><small>Além dos capítulos, salva o vídeo inteiro ao lado da pasta</small></span><i class="sw"></i></button>
+                <ol class="chap-list" id="chapList"></ol>
+              </div>
+            </div>
           </div>
 
           <div class="opt">
@@ -272,11 +279,24 @@
           </div>
         </section>
 
-        <section class="set-group">
-          <h2>Vídeos com restrição</h2>
+        <section class="set-group" id="setAuth">
+          <h2>Login para vídeos com restrição</h2>
           <div class="set-row col">
-            <div class="set-txt"><b>Usar login do navegador</b><small>Use quando o YouTube pedir confirmação de que você não é um robô, ou para vídeos privados, com restrição de idade ou de membros. Os cookies são lidos só no seu computador. No Windows, o Firefox é o mais confiável; Chrome e Edge precisam estar fechados durante o download.</small></div>
-            <div class="chips" id="setCookies"></div>
+            <div class="set-txt"><b>Entre com sua conta</b><small>Necessário para vídeos privados, com restrição de idade, exclusivos para membros, ou quando o YouTube pedir confirmação de que você não é um robô. O login fica salvo só neste computador.</small></div>
+            <div class="seg" id="setAuthSource"><span class="thumbsel"></span><button type="button" data-v="vela">Contas no Vela</button><button type="button" data-v="browser">Navegador instalado</button></div>
+          </div>
+          <div id="authVela">
+            <div id="acctList"></div>
+            <div class="set-row">
+              <div class="set-txt"><b>Importar cookies.txt</b><small>Se o login pela janela do Vela não funcionar, exporte os cookies do site no seu navegador com uma extensão como "Get cookies.txt LOCALLY" e importe o arquivo aqui.</small><small id="authFileInfo" class="ok-note" hidden></small></div>
+              <div class="set-ctl"><button class="btn btn-ghost btn-sm" type="button" id="authClear" hidden>Apagar logins</button><button class="btn btn-ghost btn-sm" type="button" id="authImport">Importar arquivo</button></div>
+            </div>
+          </div>
+          <div id="authBrowser" hidden>
+            <div class="set-row col">
+              <div class="set-txt"><b>Navegador</b><small>O Vela lê o login direto do navegador escolhido, que precisa estar fechado durante o download. No Windows, o Firefox é o mais confiável: versões recentes do Chrome e do Edge protegem os cookies e geralmente não funcionam.</small></div>
+              <div class="chips" id="setCookies"></div>
+            </div>
           </div>
         </section>
 

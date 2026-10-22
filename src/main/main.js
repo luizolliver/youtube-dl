@@ -8,6 +8,7 @@ const {
 
 const store = require('./settings');
 const engine = require('./ytdlp');
+const auth = require('./auth');
 const { DownloadManager } = require('./downloads');
 const { POPULAR, siteFor, isUrl } = require('./sites');
 
@@ -95,6 +96,7 @@ const manager = new DownloadManager({
         id: job.id, title: job.title, thumbnail: job.thumbnail, site: job.site, url: job.url,
         mode: job.mode, format: job.format, qualityLabel: job.qualityLabel, dir: job.dir,
         files: job.files, isPlaylist: job.isPlaylist, itemCount: job.itemTotal, size: job.bytes || job.estimate,
+        chapterCount: job.chapterCount || 0,
         finishedAt: job.finishedAt
       };
       store.addHistory(entry);
@@ -239,7 +241,12 @@ function createWindow() {
 // IPC
 
 const ok = data => ({ ok: true, data });
-const fail = err => ({ ok: false, error: (err && err.message) || String(err) });
+const fail = err => ({
+  ok: false,
+  error: (err && err.message) || String(err),
+  needsLogin: !!(err && err.needsLogin),
+  loginSite: (err && err.loginSite) || null
+});
 
 function knownFolders() {
   const safe = name => { try { return app.getPath(name); } catch { return null; } };
@@ -281,7 +288,10 @@ function registerIpc() {
     try {
       await engine.ensureEngine(p => send('engine:progress', p));
       return ok(await engine.analyze(url.trim(), store.getSettings()));
-    } catch (err) { return fail(err); }
+    } catch (err) {
+      err.loginSite = auth.siteIdForUrl(url);
+      return fail(err);
+    }
   });
 
   ipcMain.handle('download:start', (_e, opts) => {
@@ -338,6 +348,37 @@ function registerIpc() {
       const st = await fs.promises.statfs(target);
       return { free: st.bavail * st.bsize, total: st.blocks * st.bsize };
     } catch { return null; }
+  });
+
+  // Sign-in for restricted videos
+  ipcMain.handle('auth:status', () => auth.status());
+  ipcMain.handle('auth:login', async (_e, siteId) => {
+    const r = await auth.login(siteId, { parent: win, icon: IS_WIN ? ICON_ICO : ICON });
+    if (r.ok && r.connected) store.setSettings({ authSource: 'vela' });
+    showWindow();
+    return { ...r, status: auth.status() };
+  });
+  ipcMain.handle('auth:logout', async (_e, siteId) => {
+    await auth.logout(siteId);
+    return auth.status();
+  });
+  ipcMain.handle('auth:clear', async () => {
+    await auth.clearAll();
+    return auth.status();
+  });
+  ipcMain.handle('auth:import', async () => {
+    const r = await dialog.showOpenDialog(win, {
+      title: 'Escolha o arquivo cookies.txt',
+      buttonLabel: 'Importar',
+      properties: ['openFile'],
+      filters: [{ name: 'cookies.txt', extensions: ['txt'] }, { name: 'Todos os arquivos', extensions: ['*'] }]
+    });
+    if (r.canceled || !r.filePaths[0]) return { ok: false, canceled: true };
+    try {
+      const sites = auth.importFile(r.filePaths[0]);
+      store.setSettings({ authSource: 'vela' });
+      return { ok: true, sites, status: auth.status() };
+    } catch (err) { return fail(err); }
   });
 
   ipcMain.handle('sites:list', () => engine.listExtractors(store.getSettings()));

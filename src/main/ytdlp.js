@@ -8,6 +8,7 @@ const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
 const { app, net } = require('electron');
+const auth = require('./auth');
 
 const RELEASE_BASE = 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/';
 const PROGRESS_PREFIX = '@@P|';
@@ -115,7 +116,7 @@ function baseArgs(settings) {
   // YouTube needs a JavaScript runtime. Electron can run as Node, so we
   // point yt-dlp at our own executable instead of asking users to install one.
   args.push('--no-js-runtimes', '--js-runtimes', 'node:' + process.execPath);
-  if (settings && settings.cookiesBrowser) args.push('--cookies-from-browser', settings.cookiesBrowser);
+  args.push(...auth.cookieArgs(settings));
   return args;
 }
 
@@ -170,6 +171,7 @@ function run(args, settings, { timeout = 120000 } = {}) {
       else {
         const err = new Error(friendlyError(stderr || stdout));
         err.raw = stderr;
+        err.needsLogin = needsLogin(stderr || stdout);
         reject(err);
       }
     });
@@ -179,13 +181,15 @@ function run(args, settings, { timeout = 120000 } = {}) {
 // ---------------------------------------------------------------------------
 // Errors in the user's language
 
+// The third field marks errors that signing in to the site can fix.
 const ERROR_RULES = [
-  [/confirm you.?re not a bot|confirm you are not a bot/i, 'O YouTube pediu uma confirmação de que você não é um robô. Em Configurações, escolha em "Usar login do navegador" o navegador em que você usa o YouTube e tente de novo.'],
-  [/could not (find|copy) .*cookie|failed to decrypt|cookies database|could not open.*cookie/i, 'Não conseguimos ler o login do navegador escolhido. Feche o navegador e tente de novo, ou escolha o Firefox em Configurações.'],
+  [/confirm you.?re not a bot|confirm you are not a bot/i, 'O YouTube pediu uma confirmação de que você não é um robô. Entre com sua conta do YouTube e tente de novo.', true],
+  [/could not (find|copy) .*cookie|failed to decrypt|cookies database|could not open.*cookie/i, 'Não conseguimos ler o login do navegador escolhido. Feche o navegador e tente de novo, ou entre com sua conta pelo Vela em Configurações.'],
   [/Unsupported URL/i, 'Esse site ainda não é suportado. Veja a lista completa em Sites suportados.'],
-  [/Private video|video is private/i, 'Este vídeo é privado. Para baixá-lo, sua conta precisa ter acesso: ative "Usar login do navegador" em Configurações.'],
-  [/confirm your age|age.restricted|inappropriate for some users/i, 'Este vídeo tem restrição de idade. Ative "Usar login do navegador" em Configurações para baixar com a sua conta.'],
-  [/members.only|join this channel/i, 'Este vídeo é exclusivo para membros do canal.'],
+  [/Private video|video is private/i, 'Este vídeo é privado. Entre com uma conta que tenha acesso a ele e tente de novo.', true],
+  [/confirm your age|age.restricted|inappropriate for some users/i, 'Este vídeo tem restrição de idade. Entre com sua conta e tente de novo.', true],
+  [/members.only|join this channel/i, 'Este vídeo é exclusivo para membros do canal. Entre com a conta que é membro e tente de novo.', true],
+  [/login required|requires? (a )?(login|authentication|account)|you need to log ?in|use --cookies|cookies for the authentication|logged.in users|sign in to (view|watch)/i, 'Este conteúdo só pode ser baixado com login. Entre com sua conta e tente de novo.', true],
   [/is live|live event will begin|Premieres in|This live event/i, 'Esta transmissão ainda está ao vivo ou não começou. Tente de novo depois que ela terminar.'],
   [/Requested format is not available/i, 'A qualidade escolhida não está disponível para este vídeo. Escolha outra resolução.'],
   [/Video unavailable|video is unavailable|has been removed|does not exist|HTTP Error 404/i, 'Este vídeo não está disponível. Ele pode ter sido removido ou estar bloqueado na sua região.'],
@@ -196,6 +200,12 @@ const ERROR_RULES = [
   [/ffmpeg.*not (installed|found)/i, 'O componente de conversão (ffmpeg) não foi encontrado. Reinstale o Vela.'],
   [/getaddrinfo|Failed to resolve|Name or service not known|timed out|Connection (reset|refused|aborted)|Unable to download (webpage|API)|urlopen error|Network is unreachable/i, 'Sem conexão com o site. Verifique sua internet e tente de novo.']
 ];
+
+function needsLogin(text) {
+  const t = String(text || '');
+  const rule = ERROR_RULES.find(([re]) => re.test(t));
+  return !!(rule && rule[2]);
+}
 
 function friendlyError(text) {
   const t = String(text || '');
@@ -289,6 +299,7 @@ function normalizeVideo(info, url) {
     url: info.webpage_url || url,
     hasVideo: qualities.length > 0,
     qualities,
+    chapters: (info.chapters || []).filter(c => c && c.title != null).map(c => ({ title: c.title, start: c.start_time || 0, end: c.end_time || 0 })),
     isLive: !!info.is_live
   };
 }
@@ -401,6 +412,10 @@ function buildDownloadArgs(job) {
   }
 
   if (job.saveThumbnail) a.push('--write-thumbnail', '--convert-thumbnails', 'jpg');
+  if (job.splitChapters && !job.isPlaylist) {
+    // One file per chapter, in a folder named after the video
+    a.push('--split-chapters', '-o', 'chapter:%(title).150B/%(section_number)02d - %(section_title).120B.%(ext)s');
+  }
   a.push('--', job.url);
   return a;
 }
@@ -423,6 +438,7 @@ class DownloadRun {
     this.doneBytes = 0;
     this.curBytes = 0;
     this.destinations = [];
+    this.chapterFiles = [];
     this.lastError = '';
     this.stderrTail = [];
     this.startedAt = Date.now();
@@ -492,6 +508,15 @@ class DownloadRun {
       this.emit();
       return;
     }
+    if ((m = line.match(/^\[SplitChapters\] Chapter (\d+); Destination: (.+)$/))) {
+      this.stage = 'split';
+      this.chapterFiles.push(path.resolve(job.dir, m[2].trim()));
+      job.chapterCount = this.chapterFiles.length;
+      this.setItemFrac(0.97 + Math.min(0.02, this.chapterFiles.length * 0.001));
+      this.emit();
+      return;
+    }
+    if (/^\[SplitChapters\]/.test(line)) { this.stage = 'split'; this.setItemFrac(0.97); this.emit(); return; }
     if (/^\[(Merger|VideoRemuxer|VideoConvertor)\]/.test(line)) { this.stage = 'merge'; this.setItemFrac(0.97); this.emit(); return; }
     if (/^\[ExtractAudio\]/.test(line)) { this.stage = 'convert'; this.setItemFrac(0.94); this.emit(); return; }
     if (/^\[(EmbedSubtitle|Metadata|EmbedThumbnail|ThumbnailsConvertor|Fixup\w*|MoveFiles|SubtitlesConvertor)\]/.test(line)) {
@@ -541,15 +566,18 @@ class DownloadRun {
 
     if (this.stopReason === 'cancel') {
       this.cleanupPartials(files);
+      for (const f of this.chapterFiles) fs.rm(f, { force: true }, () => {});
       return { ok: false, canceled: true };
     }
     if (this.stopReason === 'pause') return { ok: false, paused: true, files };
 
-    if (code === 0) return { ok: true, files };
+    const chapterFiles = this.chapterFiles;
+    if (code === 0) return { ok: true, files, chapterFiles };
     if (job.isPlaylist && files.length) {
-      return { ok: true, files, partial: `${files.length} de ${this.itemTotal} itens baixados. Alguns vídeos da playlist não estavam disponíveis.` };
+      return { ok: true, files, chapterFiles, partial: `${files.length} de ${this.itemTotal} itens baixados. Alguns vídeos da playlist não estavam disponíveis.` };
     }
-    return { ok: false, error: friendlyError([this.lastError, ...this.stderrTail].join('\n')) };
+    const errText = [this.lastError, ...this.stderrTail].join('\n');
+    return { ok: false, error: friendlyError(errText), needsLogin: needsLogin(errText) };
   }
 
   cleanupPartials(finished) {
@@ -564,7 +592,7 @@ class DownloadRun {
 }
 
 module.exports = {
-  ensureEngine, isInstalled, analyze, version, update, listExtractors, friendlyError,
+  ensureEngine, isInstalled, analyze, version, update, listExtractors, friendlyError, needsLogin,
   DownloadRun, binPath, ffmpegPath,
   // exposed for tests
   _internal: { normalizeVideo, normalizePlaylist, buildDownloadArgs }

@@ -10,10 +10,13 @@ const DEFAULTS = {
   theme: 'system', // system | light | dark
   clipboardWatch: true,
   maxConcurrent: 2,
+  authSource: 'vela', // vela: accounts signed in inside Vela | browser: an installed browser's cookies
   cookiesBrowser: '', // '' | chrome | edge | firefox | brave | opera | vivaldi | chromium
   notifyOnComplete: true,
   subtitles: true,
   saveThumbnail: false,
+  splitChapters: false,
+  keepFullVideo: true,
   lastKind: 'video',
   lastVideoFormat: 'MP4',
   lastAudioFormat: 'MP3',
@@ -66,7 +69,10 @@ const settingsStore = new JsonStore(path.join(userData(), 'settings.json'), {});
 const historyStore = new JsonStore(path.join(userData(), 'history.json'), []);
 
 function getSettings() {
-  const s = Object.assign({}, DEFAULTS, settingsStore.load());
+  const raw = settingsStore.load();
+  const s = Object.assign({}, DEFAULTS, raw);
+  // Earlier versions only had the installed-browser option
+  if (!raw.authSource && raw.cookiesBrowser) s.authSource = 'browser';
   if (!s.downloadDir || !fs.existsSync(s.downloadDir)) s.downloadDir = app.getPath('videos');
   return s;
 }

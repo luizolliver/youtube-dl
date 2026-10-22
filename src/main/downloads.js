@@ -4,14 +4,17 @@
 // and reports every change to the window.
 
 const crypto = require('crypto');
+const fs = require('fs');
 const path = require('path');
+const auth = require('./auth');
 const { DownloadRun } = require('./ytdlp');
 const store = require('./settings');
 
 const PUBLIC_FIELDS = [
   'id', 'url', 'title', 'thumbnail', 'site', 'channel', 'isPlaylist', 'itemCount', 'items', 'mode', 'format', 'height', 'kbps',
   'dir', 'estimate', 'status', 'progress', 'speed', 'eta', 'stage', 'stream', 'bytes', 'itemIndex', 'itemTotal',
-  'files', 'error', 'notice', 'createdAt', 'finishedAt', 'qualityLabel'
+  'files', 'error', 'notice', 'createdAt', 'finishedAt', 'qualityLabel',
+  'splitChapters', 'keepFullVideo', 'chapterCount', 'needsLogin', 'loginSite'
 ];
 
 // When a site doesn't offer the chosen container (e.g. WebM for an H.264-only
@@ -21,6 +24,26 @@ function formatNotice(job, files) {
   const exts = [...new Set(files.map(f => path.extname(f).slice(1).toLowerCase()).filter(Boolean))];
   if (!exts.length || exts.includes(job.format.toLowerCase())) return null;
   return `Este site não oferece ${job.format} para esse vídeo. O arquivo foi salvo como ${exts[0].toUpperCase()}.`;
+}
+
+// After --split-chapters: list the chapter files, and delete the full-length
+// file when the user only wanted the chapters.
+function applyChapters(job, result) {
+  const chapters = result.chapterFiles || [];
+  job.chapterCount = chapters.length;
+  if (!chapters.length) {
+    job.notice = job.notice || 'Este vídeo não tem capítulos. Ele foi salvo como um arquivo só.';
+    return;
+  }
+  if (!job.keepFullVideo) {
+    for (const f of job.files) {
+      try { fs.rmSync(f, { force: true }); } catch { /* keep going */ }
+    }
+    job.files = chapters;
+  } else {
+    job.files = [...chapters, ...job.files];
+  }
+  job.notice = job.notice || `${chapters.length} capítulos salvos na pasta "${path.basename(path.dirname(chapters[0]))}".`;
 }
 
 class DownloadManager {
@@ -76,6 +99,11 @@ class DownloadManager {
       qualityLabel: opts.qualityLabel || '',
       subtitles: !!opts.subtitles,
       saveThumbnail: !!opts.saveThumbnail,
+      splitChapters: !!opts.splitChapters && !opts.isPlaylist,
+      keepFullVideo: opts.keepFullVideo !== false,
+      chapterCount: 0,
+      needsLogin: false,
+      loginSite: auth.siteIdForUrl(opts.url),
       dir: opts.dir,
       estimate: opts.estimate || null,
       status: 'queued',
@@ -134,6 +162,7 @@ class DownloadManager {
       job.eta = 0;
       job.files = result.files;
       job.notice = result.partial || formatNotice(job, result.files);
+      if (job.splitChapters) applyChapters(job, result);
       job.finishedAt = Date.now();
       this.emit(job, true);
       this.onFinished(this.snapshot(job));
@@ -141,6 +170,7 @@ class DownloadManager {
       job.status = 'error';
       job.speed = 0;
       job.error = result.error;
+      job.needsLogin = !!result.needsLogin;
       this.emit(job, true);
       this.onFinished(this.snapshot(job));
     }
@@ -159,6 +189,7 @@ class DownloadManager {
     if (!job || !['paused', 'error'].includes(job.status)) return;
     job.status = 'queued';
     job.error = null;
+    job.needsLogin = false;
     this.emit(job, true);
     this.pump();
   }

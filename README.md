@@ -8,6 +8,8 @@ Aplicativo para Windows que baixa vídeos e playlists do YouTube e de mais de mi
 - **Detecta links copiados:** ao copiar um link de um site conhecido, o Vela mostra um atalho para usá-lo. Você pode desligar isso em Configurações.
 - **Qualidade antes de baixar:** o app lista as resoluções que o vídeo realmente tem, de 144p até 8K, com o tamanho estimado de cada uma. Os formatos de vídeo são MP4, WebM e MKV; os de áudio são MP3, M4A e OPUS, de 128 a 320 kbps.
 - **Playlists:** marque só os vídeos que quiser. Eles são salvos numa pasta com o nome da playlist, numerados na ordem.
+- **Dividir por capítulos:** em vídeos com capítulos, um toggle cria um arquivo por capítulo (`--split-chapters`), numa pasta com o nome do vídeo. Funciona em vídeo e em áudio, o que é útil para álbuns completos. Você escolhe se mantém também o arquivo completo.
+- **Login para vídeos com restrição:** entre com sua conta do YouTube, Instagram, X, Facebook ou TikTok numa janela do próprio Vela.
 - **Progresso em tempo real:** porcentagem, velocidade, tempo restante e etapa atual (vídeo, áudio, junção). O progresso também aparece no ícone da barra de tarefas.
 - **Fila de downloads:** de 1 a 4 downloads ao mesmo tempo, com botões de pausar, continuar e cancelar. Ao cancelar, os arquivos parciais são apagados.
 - **Pasta de destino:** o padrão é a pasta **Vídeos** do Windows. Você pode trocar a qualquer momento pelo seletor de pastas do Windows.
@@ -56,7 +58,11 @@ O comando baixa o `yt-dlp.exe` para `resources/bin`, que vai embutido no instala
 
 ## Vídeos que exigem login
 
-Se o YouTube pedir confirmação de que você não é um robô, ou se o vídeo for privado ou tiver restrição de idade, ative **Configurações → Usar login do navegador** e escolha o navegador em que você usa o site. No Windows, o Firefox é o mais confiável. Chrome e Edge precisam estar fechados durante o download.
+Vídeos privados, com restrição de idade ou exclusivos para membros exigem login. O YouTube também pode pedir a confirmação "não sou um robô". Nesses casos, o Vela mostra o botão **Entrar com o YouTube** ao lado do erro. Ele também fica em **Configurações → Login para vídeos com restrição**.
+
+- **Contas no Vela (padrão):** a página de login do próprio site abre numa janela do Vela, com uma sessão de navegador separada. Quando o login termina, a janela fecha sozinha e o download é tentado de novo. Os cookies do site ficam em `%APPDATA%\Vela\cookies.txt`, só neste computador, e o yt-dlp os lê com `--cookies`. "Sair" apaga o login daquele site.
+- **Importar cookies.txt:** se o Google recusar o login dentro do app, exporte os cookies no seu navegador com uma extensão como "Get cookies.txt LOCALLY" e importe o arquivo. Os logins importados se juntam aos que já existem.
+- **Navegador instalado:** o yt-dlp lê o login direto do navegador (`--cookies-from-browser`). No Windows, o Firefox é o mais confiável. As versões recentes do Chrome e do Edge protegem os cookies e geralmente não funcionam.
 
 ## Estrutura
 
@@ -65,6 +71,7 @@ src/main/main.js        janela, IPC, área de transferência, notificações
 src/main/ytdlp.js       instalação do motor, leitura de metadados, downloads e progresso
 src/main/downloads.js   fila com pausar, continuar e cancelar
 src/main/settings.js    configurações e histórico (JSON em %APPDATA%\Vela)
+src/main/auth.js        login dentro do app e o cookies.txt usado pelo yt-dlp
 src/main/sites.js       sites populares e detecção de links
 src/preload/preload.js  ponte segura entre a interface e o processo principal
 src/renderer/           interface (HTML, CSS e JS, sem framework)

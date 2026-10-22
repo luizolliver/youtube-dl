@@ -38,6 +38,14 @@ contextBridge.exposeInMainWorld('vela', {
     onAdded: on('history:added')
   },
 
+  auth: {
+    status: () => ipcRenderer.invoke('auth:status'),
+    login: siteId => ipcRenderer.invoke('auth:login', siteId),
+    logout: siteId => ipcRenderer.invoke('auth:logout', siteId),
+    clear: () => ipcRenderer.invoke('auth:clear'),
+    importFile: () => ipcRenderer.invoke('auth:import')
+  },
+
   settings: {
     set: patch => ipcRenderer.invoke('settings:set', patch)
   },

@@ -426,3 +426,20 @@ h2{font-size:13px;margin:0;font-weight:600}
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
 }
+
+/* chapters */
+.chap{display:grid;gap:8px;margin-top:8px}
+.chap-more{display:grid;gap:8px;padding-left:18px;border-left:2px solid var(--line);margin-left:12px;animation:paneIn .3s var(--ease) both}
+.tg-sub{padding-block:8px}
+.chap-list{list-style:none;margin:0;padding:6px 0;border:1px solid var(--line);border-radius:10px;max-height:188px;overflow:auto;counter-reset:ch}
+.chap-list li{display:grid;grid-template-columns:28px minmax(0,1fr) auto;gap:10px;align-items:center;padding:5px 12px;font-size:12.5px}
+.chap-list li .n{font:12px var(--mono);color:var(--faint);text-align:right}
+.chap-list li .t{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chap-list li .d{font:12px var(--mono);color:var(--faint)}
+
+/* accounts */
+.acct{gap:12px}
+.mk{width:32px;height:32px;border-radius:9px;display:grid;place-items:center;font-weight:700;font-size:13px;color:#fff;flex:none;font-style:normal;background:hsl(var(--h) 55% 48%)}
+.acct-state{display:inline-flex;align-items:center;gap:6px}
+.acct-state .dot{width:6px;height:6px}
+.ok-note{color:var(--ok)!important}

@@ -19,7 +19,7 @@
   // Typical MB per minute, used when a site doesn't report file sizes
   const MB_PER_MIN = { 4320: 250, 2160: 120, 1440: 58, 1080: 22, 720: 12, 480: 6.2, 360: 3.6, 240: 2.2, 144: 1.2, 0: 20 };
   const BROWSERS = [
-    { v: '', label: 'Não usar' }, { v: 'firefox', label: 'Firefox' }, { v: 'chrome', label: 'Chrome' },
+    { v: 'firefox', label: 'Firefox' }, { v: 'chrome', label: 'Chrome' },
     { v: 'edge', label: 'Edge' }, { v: 'brave', label: 'Brave' }, { v: 'opera', label: 'Opera' }, { v: 'vivaldi', label: 'Vivaldi' }
   ];
 
@@ -164,7 +164,7 @@
     if (view === 'downloads') renderJobs();
     if (view === 'history') renderHistory();
     if (view === 'sites') renderSites();
-    if (view === 'settings') renderSettings();
+    if (view === 'settings') { renderSettings(); api.auth.status().then(st => { S.auth = st; renderSettings(); }); }
   }
   $$('.side .nav[data-view]').forEach(n => n.addEventListener('click', () => {
     if (n.dataset.view === 'new' && S.view === 'new' && S.step === 3) go(1);
@@ -229,9 +229,11 @@
     $('#skel').hidden = true;
     $('#p1Extras').hidden = false;
     if (!r.ok) {
-      const needsSettings = /Configurações/.test(r.error);
       const needsSites = /Sites suportados/.test(r.error);
-      showUrlError(esc(r.error) +
+      const login = loginOffer(r.needsLogin, r.loginSite);
+      const needsSettings = /Configurações/.test(r.error) || (r.needsLogin && !login);
+      showUrlError(esc(login && login.connected ? login.retryText : r.error) +
+        (login ? ` <button type="button" class="linkbtn" data-login="${login.site}">${login.label}</button>` : '') +
         (needsSettings ? ' <button type="button" class="linkbtn" data-goto="settings">Abrir Configurações</button>' : '') +
         (needsSites ? ' <button type="button" class="linkbtn" data-goto="sites">Ver sites</button>' : ''));
       renderClip();
@@ -245,7 +247,47 @@
     renderStep2();
     go(2);
   }
-  $('#urlErr').addEventListener('click', e => { const b = e.target.closest('[data-goto]'); if (b) showView(b.dataset.goto); });
+  $('#urlErr').addEventListener('click', async e => {
+    const g = e.target.closest('[data-goto]');
+    if (g) { showView(g.dataset.goto); return; }
+    const l = e.target.closest('[data-login]');
+    if (l && await signIn(l.dataset.login)) analyze(url.value);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Sign-in for restricted videos
+
+  const siteName = id => ((S.auth && S.auth.sites.find(s => s.id === id)) || {}).name || id;
+  const isConnected = id => !!(S.auth && S.auth.sites.some(s => s.id === id && s.connected));
+
+  // What to offer when a download needs an account: sign in through Vela
+  // (unless the user chose an installed browser as the login source).
+  function loginOffer(needsLogin, site) {
+    if (!needsLogin || !site || S.settings.authSource === 'browser') return null;
+    const connected = isConnected(site);
+    return {
+      site,
+      connected,
+      label: connected ? `Entrar de novo no ${siteName(site)}` : `Entrar com o ${siteName(site)}`,
+      retryText: `O ${siteName(site)} recusou o login salvo. Ele pode ter expirado: entre de novo e tente outra vez.`
+    };
+  }
+
+  let signingIn = false;
+  async function signIn(siteId) {
+    if (signingIn) return false;
+    signingIn = true;
+    toast(`Entre na sua conta do ${siteName(siteId)} na janela que abriu. Ela fecha sozinha quando o login terminar.`, { duration: 7000 });
+    const r = await api.auth.login(siteId);
+    signingIn = false;
+    if (r.status) S.auth = r.status;
+    S.settings = await api.settings.set({});
+    if (S.view === 'settings') renderSettings();
+    if (!r.ok) { toast(r.error, { error: true, duration: 8000 }); return false; }
+    if (!r.connected) { toast('O login não foi concluído. Tente de novo quando quiser.'); return false; }
+    toast(`Conectado ao ${siteName(siteId)}`);
+    return true;
+  }
 
   $('#pasteForm').addEventListener('submit', e => { e.preventDefault(); analyze(url.value); });
   url.addEventListener('input', () => showUrlError(''));
@@ -333,6 +375,7 @@
         <div class="pills">
           <span class="pill ${isList ? 'acc' : ''}">${isList ? I.listSm + 'Playlist' : (m.hasVideo ? I.videoSm + 'Vídeo' : 'Áudio')}</span>
           ${m.site ? `<span class="pill">${esc(prettySite(m.site))}</span>` : ''}
+          ${chaptersOf(m).length ? `<span class="pill">${chaptersOf(m).length} capítulos</span>` : ''}
         </div>
         <p class="media-title">${esc(m.title)}</p>
         <div class="meta">${meta}</div>
@@ -455,15 +498,25 @@
     }));
   }
 
+  // Chapters are only offered for single videos that have at least two
+  const chaptersOf = m => (m && m.kind === 'video' && m.chapters && m.chapters.length > 1 ? m.chapters : []);
+  const splitting = () => S.settings.splitChapters && chaptersOf(S.media).length > 0;
+
   function renderExtras() {
     const subs = $('#tgSubs');
     subs.disabled = S.mode === 'audio';
     $$('#p2 .tg').forEach(t => t.classList.toggle('on', !!S.settings[t.dataset.tg] && !t.disabled));
+    const ch = chaptersOf(S.media);
+    $('#chapBox').hidden = !ch.length;
+    if (!ch.length) return;
+    $('#chapHint').textContent = `Salva ${ch.length} arquivos, um por capítulo, numa pasta com o nome do ${S.mode === 'audio' ? 'áudio' : 'vídeo'}`;
+    $('#chapMore').hidden = !S.settings.splitChapters;
+    $('#chapList').innerHTML = ch.map((c, i) => `<li><span class="n">${String(i + 1).padStart(2, '0')}</span><span class="t" title="${esc(c.title)}">${esc(c.title)}</span><span class="d">${fmtDur(c.start)}</span></li>`).join('');
   }
   $$('#p2 .tg').forEach(t => t.addEventListener('click', () => {
     if (t.disabled) return;
     const k = t.dataset.tg;
-    saveSettings({ [k]: !S.settings[k] }).then(renderExtras);
+    saveSettings({ [k]: !S.settings[k] }).then(() => { renderExtras(); renderSummary(); });
   }));
 
   // Destination
@@ -507,7 +560,7 @@
     const isList = S.media.kind === 'playlist';
     const n = isList ? selectedEntries().length : 1;
     const fmt = S.mode === 'audio' ? S.afmt : S.vfmt;
-    $('#sumMain').textContent = `${qualityLabel()} · ${fmt}${isList ? ` · ${n} ${n === 1 ? 'vídeo' : 'vídeos'}` : ''}`;
+    $('#sumMain').textContent = `${qualityLabel()} · ${fmt}${isList ? ` · ${n} ${n === 1 ? 'vídeo' : 'vídeos'}` : ''}${splitting() ? ` · ${chaptersOf(S.media).length} capítulos` : ''}`;
     const est = currentEstimate();
     $('#sumSub').textContent = n
       ? `${est ? '~' + fmtSize(est) + ' · ' : ''}salvando em ${folderName(S.settings.downloadDir)}`
@@ -538,6 +591,8 @@
       kbps: S.kbps,
       qualityLabel: qualityLabel(),
       subtitles: S.mode === 'video' && S.settings.subtitles,
+      splitChapters: splitting(),
+      keepFullVideo: S.settings.keepFullVideo,
       saveThumbnail: S.settings.saveThumbnail,
       estimate: currentEstimate(),
       dir: S.settings.downloadDir
@@ -557,11 +612,14 @@
   // Step 3: progress of the focused download
 
   function stagesOf(job) {
-    if (job.mode === 'audio') return ['Baixando áudio', 'Convertendo', 'Concluído'];
-    return ['Baixando vídeo', 'Baixando áudio', 'Finalizando', 'Concluído'];
+    const split = job.splitChapters ? ['Dividindo capítulos'] : [];
+    if (job.mode === 'audio') return ['Baixando áudio', 'Convertendo', ...split, 'Concluído'];
+    return ['Baixando vídeo', 'Baixando áudio', 'Finalizando', ...split, 'Concluído'];
   }
   function stageIndex(job) {
-    if (job.status === 'done') return job.mode === 'audio' ? 2 : 3;
+    const last = stagesOf(job).length - 1;
+    if (job.status === 'done') return last;
+    if (job.stage === 'split') return last - 1;
     if (job.mode === 'audio') return ['convert', 'merge', 'finishing'].includes(job.stage) ? 1 : 0;
     if (['merge', 'finishing'].includes(job.stage)) return 2;
     return job.stream >= 2 ? 1 : 0;
@@ -585,7 +643,7 @@
       queued: 'Na fila para baixar',
       running: 'Baixando ' + noun,
       paused: 'Download pausado',
-      done: job.isPlaylist ? 'Playlist baixada' : job.mode === 'audio' ? 'Áudio baixado' : 'Vídeo baixado',
+      done: job.chapterCount ? `Dividido em ${job.chapterCount} capítulos` : job.isPlaylist ? 'Playlist baixada' : job.mode === 'audio' ? 'Áudio baixado' : 'Vídeo baixado',
       error: 'Não foi possível baixar'
     };
     $('#p3Title').textContent = titles[job.status] || titles.running;
@@ -618,18 +676,24 @@
     $('#stEta').textContent = job.status === 'done' ? 'Pronto' : job.status === 'running' && job.stage === 'download' ? fmtEta(job.eta) : job.status === 'running' ? 'Quase lá' : '–';
 
     const acts = $('#p3Actions');
-    const key = job.status + (job.files && job.files.length);
+    const key = [job.status, job.files && job.files.length, job.chapterCount, job.needsLogin, isConnected(job.loginSite)].join('|');
     if (acts.dataset.key === key && acts.dataset.id === job.id) return;
     acts.dataset.key = key;
     acts.dataset.id = job.id;
     const btn = (id, cls, icon, label) => `<button class="btn ${cls}" type="button" data-a="${id}">${icon}${label}</button>`;
     const plus = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>';
     let html = '';
-    if (job.status === 'done') {
+    if (job.status === 'done' && job.chapterCount) {
+      html = btn('chapters', 'btn-primary', I.folder, `Abrir ${job.chapterCount} capítulos`) +
+        (job.keepFullVideo ? btn('playFull', 'btn-ghost', I.file, job.mode === 'audio' ? 'Ouvir completo' : 'Assistir completo') : '') +
+        btn('another', 'btn-ghost', plus, 'Baixar outro link');
+    } else if (job.status === 'done') {
       html = (!job.isPlaylist && job.files && job.files[0] ? btn('play', 'btn-primary', I.file, job.mode === 'audio' ? 'Ouvir' : 'Assistir') : '') +
         btn('reveal', job.isPlaylist ? 'btn-primary' : 'btn-ghost', I.folder, 'Mostrar na pasta') + btn('another', 'btn-ghost', plus, 'Baixar outro link');
     } else if (job.status === 'error') {
-      html = btn('retry', 'btn-primary', I.retry, 'Tentar de novo') + btn('another', 'btn-ghost', plus, 'Baixar outro link');
+      const login = loginOffer(job.needsLogin, job.loginSite);
+      html = (login ? btn('login', 'btn-primary', I.user, login.connected ? 'Entrar de novo e tentar' : `Entrar com o ${siteName(login.site)} e tentar`) : '') +
+        btn('retry', login ? 'btn-ghost' : 'btn-primary', I.retry, 'Tentar de novo') + btn('another', 'btn-ghost', plus, 'Baixar outro link');
     } else if (job.status === 'paused') {
       html = btn('resume', 'btn-primary', I.play, 'Continuar') + btn('cancel', 'btn-ghost', I.x, 'Cancelar') + btn('another', 'btn-ghost', plus, 'Baixar outro link');
     } else {
@@ -653,6 +717,13 @@
     else if (a === 'cancel') api.downloads.cancel(job.id);
     else if (a === 'remove') api.downloads.remove(job.id);
     else if (a === 'play') { const r = await api.openPath(job.files[0]); if (!r.ok) toast(r.error, { error: true }); }
+    else if (a === 'playFull') { const r = await api.openPath(job.files[job.files.length - 1]); if (!r.ok) toast(r.error, { error: true }); }
+    else if (a === 'chapters') {
+      const dir = String(job.files[0] || '').replace(/[\\/][^\\/]*$/, '');
+      const r = await api.openPath(dir || job.dir);
+      if (!r.ok) toast(r.error, { error: true });
+    }
+    else if (a === 'login') { if (await signIn(job.loginSite)) api.downloads.resume(job.id); }
     else if (a === 'reveal') {
       const target = job.files && job.files[0];
       const r = target ? await api.reveal(target) : await api.openPath(job.dir);
@@ -673,11 +744,12 @@
       case 'queued': return 'Na fila';
       case 'paused': return `Pausado · ${pct}%`;
       case 'error': return 'Falhou · ' + (j.error || '');
-      case 'done': return 'Concluído' + (j.bytes || j.estimate ? ' · ' + fmtSize(j.bytes || j.estimate) : '');
+      case 'done': return 'Concluído' + (j.chapterCount ? ` · ${j.chapterCount} capítulos` : '') + (j.bytes || j.estimate ? ' · ' + fmtSize(j.bytes || j.estimate) : '');
       default: {
         if (j.stage === 'merge') return `${pct}% · Juntando vídeo e áudio`;
         if (j.stage === 'convert') return `${pct}% · Convertendo para ${j.format}`;
         if (j.stage === 'finishing') return `${pct}% · Finalizando`;
+        if (j.stage === 'split') return `${pct}% · Dividindo em capítulos`;
         const parts = [`${pct}%`];
         if (j.speed) parts.push(fmtSpeed(j.speed));
         if (j.eta != null) parts.push(fmtEta(j.eta));
@@ -688,7 +760,7 @@
   }
 
   function jobMeta(j) {
-    return [j.qualityLabel, j.format, j.isPlaylist ? j.itemTotal + ' vídeos' : null, j.site].filter(Boolean).join(' · ');
+    return [j.qualityLabel, j.format, j.isPlaylist ? j.itemTotal + ' vídeos' : null, j.splitChapters ? 'por capítulos' : null, j.site].filter(Boolean).join(' · ');
   }
 
   function jobButtons(j) {
@@ -813,7 +885,7 @@
       const day = dayOf(h.finishedAt);
       const head = day !== lastDay ? `<div class="hday">${day}</div>` : '';
       lastDay = day;
-      const meta = [h.qualityLabel, h.format, h.isPlaylist ? h.itemCount + ' vídeos' : null, h.size ? fmtSize(h.size) : null, h.site,
+      const meta = [h.qualityLabel, h.format, h.isPlaylist ? h.itemCount + ' vídeos' : null, h.chapterCount ? h.chapterCount + ' capítulos' : null, h.size ? fmtSize(h.size) : null, h.site,
         new Date(h.finishedAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })].filter(Boolean);
       return head + `<div class="hrow" data-id="${h.id}">
         ${thumbHTML(h.thumbnail, h.id)}
@@ -899,6 +971,10 @@
     setSeg($('#setConc'), s.maxConcurrent);
     setSeg($('#setTheme'), s.theme);
     $$('[data-set]').forEach(r => r.classList.toggle('on', !!s[r.dataset.set]));
+    setSeg($('#setAuthSource'), s.authSource);
+    $('#authVela').hidden = s.authSource === 'browser';
+    $('#authBrowser').hidden = s.authSource !== 'browser';
+    renderAccounts();
     $('#setCookies').innerHTML = BROWSERS.map(b => `<button type="button" class="chip ${b.v === (s.cookiesBrowser || '') ? 'on' : ''}" data-v="${b.v}">${b.v === (s.cookiesBrowser || '') ? I.check : ''}${b.label}</button>`).join('');
     $('#setEngineVer').textContent = S.engineVersion || 'não instalado';
     $('#setFfmpeg').textContent = S.ffmpeg ? 'Instalado. Junta vídeo e áudio e converte para MP3.' : 'Não encontrado. Vídeos em alta resolução podem vir sem áudio. Reinstale o Vela.';
@@ -919,7 +995,67 @@
     if (!b) return;
     await saveSettings({ cookiesBrowser: b.dataset.v });
     renderSettings();
-    toast(b.dataset.v ? `O Vela vai usar o login do ${b.textContent.trim()}` : 'Login do navegador desativado');
+    toast(`O Vela vai usar o login do ${b.textContent.trim()}`);
+  });
+
+  function renderAccounts() {
+    const st = S.auth || { sites: [] };
+    $('#acctList').innerHTML = st.sites.map(a => `<div class="set-row acct">
+        <i class="mk" style="--h:${hueOf(a.name)}">${esc(a.name[0])}</i>
+        <div class="set-txt"><b>${esc(a.name)}</b><small class="acct-state ${a.connected ? 'ok-note' : ''}">${a.connected ? '<span class="dot"></span>Conectado. Os downloads deste site usam a sua conta.' : 'Não conectado'}</small></div>
+        <div class="set-ctl">${a.connected
+          ? `<button class="btn btn-ghost btn-sm" type="button" data-logout="${a.id}">Sair</button>`
+          : `<button class="btn btn-ghost btn-sm" type="button" data-login="${a.id}">Entrar</button>`}</div>
+      </div>`).join('');
+    const info = $('#authFileInfo');
+    info.hidden = !st.hasFile;
+    if (st.hasFile) {
+      const when = st.updatedAt ? new Date(st.updatedAt).toLocaleDateString('pt-BR', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+      info.textContent = `Arquivo de login ativo${when ? ', atualizado em ' + when : ''}.`;
+    }
+    $('#authClear').hidden = !st.hasFile;
+  }
+  $$('#setAuthSource button').forEach(b => b.addEventListener('click', async () => {
+    const v = b.dataset.v;
+    await saveSettings(v === 'browser' && !S.settings.cookiesBrowser ? { authSource: v, cookiesBrowser: 'firefox' } : { authSource: v });
+    renderSettings();
+  }));
+  $('#acctList').addEventListener('click', async e => {
+    const login = e.target.closest('[data-login]');
+    if (login) { await signIn(login.dataset.login); renderSettings(); return; }
+    const out = e.target.closest('[data-logout]');
+    if (out) {
+      S.auth = await api.auth.logout(out.dataset.logout);
+      renderSettings();
+      toast(`Você saiu do ${siteName(out.dataset.logout)} no Vela`);
+    }
+  });
+  $('#authImport').addEventListener('click', async () => {
+    const r = await api.auth.importFile();
+    if (r.canceled) return;
+    if (!r.ok) { toast(r.error, { error: true, duration: 7000 }); return; }
+    S.auth = r.status;
+    S.settings = await api.settings.set({});
+    renderSettings();
+    toast(r.sites.length ? `Login importado: ${r.sites.join(', ')}` : 'Arquivo importado. Ele será usado nos próximos downloads.');
+  });
+  // Two clicks to erase: the first one asks for confirmation in place
+  let clearArmed = null;
+  $('#authClear').addEventListener('click', async () => {
+    const btn = $('#authClear');
+    if (!clearArmed) {
+      btn.textContent = 'Confirmar: apagar todos';
+      btn.classList.add('btn-danger');
+      clearArmed = setTimeout(() => { clearArmed = null; btn.textContent = 'Apagar logins'; btn.classList.remove('btn-danger'); }, 4000);
+      return;
+    }
+    clearTimeout(clearArmed);
+    clearArmed = null;
+    btn.textContent = 'Apagar logins';
+    btn.classList.remove('btn-danger');
+    S.auth = await api.auth.clear();
+    renderSettings();
+    toast('Todos os logins foram apagados do Vela');
   });
   $('#setUpdate').addEventListener('click', async () => {
     const btn = $('#setUpdate');
@@ -996,6 +1132,7 @@
     S.popular = b.popular;
     S.history = b.history || [];
     S.ffmpeg = b.ffmpeg;
+    S.auth = await api.auth.status();
     $('#appVer').textContent = 'v' + b.appVersion;
     for (const j of b.jobs) upsertJob(j);
     renderDest();
