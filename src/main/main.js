@@ -353,12 +353,13 @@ function registerIpc() {
   // Sign-in for restricted videos
   ipcMain.handle('auth:status', () => auth.status());
   ipcMain.handle('auth:login', async (_e, siteId) => {
-    const r = await auth.login(siteId, { parent: win, icon: IS_WIN ? ICON_ICO : ICON });
+    const r = await auth.login(siteId, { parent: win, icon: IS_WIN ? ICON_ICO : ICON, onPhase: phase => send('auth:phase', phase) });
     if (r.ok && r.connected) store.setSettings({ authSource: 'vela' });
     showWindow();
     return { ...r, status: auth.status() };
   });
   ipcMain.handle('auth:cancel', () => auth.cancelLogin());
+  ipcMain.handle('auth:finish', () => auth.finishLogin());
   ipcMain.handle('auth:logout', async (_e, siteId) => {
     await auth.logout(siteId);
     return auth.status();

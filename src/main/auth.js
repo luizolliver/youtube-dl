@@ -147,6 +147,7 @@ const markerFound = (site, cookies) =>
 // signed in, closes the window, or cancels. Prefers a real installed browser,
 // since Google blocks sign-in inside embedded app windows.
 function login(siteId, opts = {}) {
+  const onPhase = opts.onPhase || (() => {});
   const site = siteById(siteId);
   if (!site) return Promise.resolve({ ok: false, error: 'Esse site não tem login pelo Vela.' });
   if (activeLogin) {
@@ -154,16 +155,17 @@ function login(siteId, opts = {}) {
     return activeLogin.promise;
   }
   const browser = browserLogin.findBrowser();
-  if (browser) return loginWithBrowser(site, browser);
+  if (browser) return loginWithBrowser(site, browser, onPhase);
   return loginEmbedded(site, opts);
 }
 
-function loginWithBrowser(site, browser) {
+function loginWithBrowser(site, browser, onPhase) {
   const session = browserLogin.run({
     browser,
     profileDir: profileDir(),
     url: site.login,
-    isDone: cookies => markerFound(site, cookies)
+    isDone: cookies => markerFound(site, cookies),
+    onPhase
   });
   const promise = session.promise.then(r => {
     activeLogin = null;
@@ -176,8 +178,13 @@ function loginWithBrowser(site, browser) {
     activeLogin = null;
     return { ok: false, error: 'Não foi possível concluir o login: ' + err.message };
   });
-  activeLogin = { promise, cancel: session.cancel, browser: browser.name };
+  activeLogin = { promise, cancel: session.cancel, finish: session.finish, browser: browser.name };
   return promise;
+}
+
+// The user says they are done signing in: close the browser and read the login.
+function finishLogin() {
+  if (activeLogin && activeLogin.finish) activeLogin.finish();
 }
 
 function cancelLogin() {
@@ -320,4 +327,4 @@ function cookieArgs(settings) {
   return fs.existsSync(cookieFile()) ? ['--cookies', cookieFile()] : [];
 }
 
-module.exports = { SITES, login, cancelLogin, logout, clearAll, importFile, status, cookieArgs, siteIdForUrl, isSignedIn: id => isSignedIn(siteById(id)) };
+module.exports = { SITES, login, finishLogin, cancelLogin, logout, clearAll, importFile, status, cookieArgs, siteIdForUrl, isSignedIn: id => isSignedIn(siteById(id)) };

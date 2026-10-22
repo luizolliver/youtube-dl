@@ -445,6 +445,8 @@ h2{font-size:13px;margin:0;font-weight:600}
 .ok-note{color:var(--ok)!important}
 
 /* waiting for sign-in */
+.login-steps{margin:0;padding:12px 14px 12px 34px;border-radius:12px;background:var(--surface);text-align:left;font-size:13px;color:var(--muted);display:grid;gap:6px;width:100%}
+.login-steps b{color:var(--text);font-weight:600}
 .mk.lg{width:52px;height:52px;border-radius:15px;font-size:22px}
 .wait-row{display:flex;align-items:center;gap:8px}
 .wait-row .spin{width:13px;height:13px;border-width:1.5px}

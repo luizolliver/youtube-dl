@@ -275,6 +275,13 @@
 
   let signingIn = false;
   $('#loginCancel').addEventListener('click', () => api.auth.cancel());
+  $('#loginFinish').addEventListener('click', () => api.auth.finish());
+  api.auth.onPhase(phase => {
+    if (phase !== 'reading') return;
+    // The browser closed; Vela is reading the saved login
+    $('#loginWaitTxt').textContent = 'Lendo o login salvo…';
+    $('#loginActions').hidden = true;
+  });
   async function signIn(siteId) {
     if (signingIn) return false;
     signingIn = true;
@@ -284,8 +291,12 @@
     $('#loginMark').style.setProperty('--h', hueOf(name));
     $('#loginTitle').textContent = `Entre no ${name}`;
     $('#loginTxt').textContent = browser
-      ? `Abrimos o ${browser} numa janela separada, só para o Vela. Entre na sua conta por lá. A janela fecha sozinha quando o login terminar.`
+      ? `Abrimos o ${browser} com um perfil separado, só para o Vela. Seu navegador do dia a dia não é alterado.`
       : `Entre na sua conta na janela que abriu. Ela fecha sozinha quando o login terminar.`;
+    $('#loginSteps').hidden = !browser;
+    $('#loginFinish').hidden = !browser;
+    $('#loginActions').hidden = false;
+    $('#loginWaitTxt').textContent = 'Aguardando o login…';
     $('#loginWait').hidden = false;
     const r = await api.auth.login(siteId);
     $('#loginWait').hidden = true;

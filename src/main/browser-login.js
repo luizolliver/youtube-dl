@@ -133,77 +133,117 @@ const toCookie = c => ({
   expirationDate: c.expires > 0 ? c.expires : undefined
 });
 
-// Opens `url` in the user's browser using Vela's own profile and calls
-// `isDone(cookies)` every second until it returns true, the user closes the
-// browser, or `cancel()` is called.
-//   onSignedIn(cookies) -> save them; the browser window is then closed.
-function run({ browser, profileDir, url, isDone, settleMs = 2500 }) {
-  let canceledEarly = false;
-  let cancelFn = () => { canceledEarly = true; };
-  const promise = (async () => {
-    fs.mkdirSync(profileDir, { recursive: true });
+const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-    // Reuse a login window that is still open from a previous attempt
-    let cdp = null;
-    const existing = readEndpoint(profileDir);
-    if (existing) {
-      try { cdp = await Cdp.connect(existing, 1500); } catch { cdp = null; }
+// Is a browser currently running with this profile? Chrome holds a lock in
+// the profile folder while it runs.
+function profileInUse(profileDir) {
+  if (process.platform === 'win32') {
+    const lock = path.join(profileDir, 'lockfile');
+    if (!fs.existsSync(lock)) return false;
+    try {
+      fs.closeSync(fs.openSync(lock, 'r+'));
+      return false;
+    } catch (err) {
+      return err.code === 'EBUSY' || err.code === 'EPERM' || err.code === 'EACCES';
     }
-    let child = null;
-    if (cdp) {
-      await cdp.send('Target.createTarget', { url, newWindow: true }).catch(() => {});
-    } else {
-      try { fs.rmSync(path.join(profileDir, 'DevToolsActivePort'), { force: true }); } catch { /* ignore */ }
-      child = spawn(browser.path, [
-        `--user-data-dir=${profileDir}`,
-        '--remote-debugging-port=0',
-        '--no-first-run',
-        '--no-default-browser-check',
-        '--disable-sync',
-        '--new-window',
-        url
-      ], { detached: true, stdio: 'ignore', windowsHide: false });
-      child.on('error', () => {});
-      child.unref();
-      cdp = await waitForEndpoint(profileDir, child);
-    }
-    if (!cdp) return { ok: false, error: `Não foi possível abrir o ${browser.name} para o login.` };
-    if (canceledEarly) {
-      cdp.send('Browser.close').catch(() => {});
-      return { ok: true, connected: false, canceled: true };
-    }
-
-    return await new Promise(resolve => {
-      let settled = false;
-      let timer = null;
-      let signedSince = 0;
-      const finish = result => {
-        if (settled) return;
-        settled = true;
-        clearInterval(timer);
-        cdp.onClose = null;
-        resolve(result);
-      };
-      cdp.onClose = () => finish({ ok: true, connected: false, closed: true });
-      cancelFn = () => {
-        cdp.send('Browser.close').catch(() => {});
-        finish({ ok: true, connected: false, canceled: true });
-      };
-      const tick = async () => {
-        let cookies;
-        try { cookies = (await cdp.send('Storage.getCookies')).cookies.map(toCookie); } catch { return; }
-        if (!isDone(cookies)) { signedSince = 0; return; }
-        // Sites set their session cookies over several redirects; let them settle
-        if (!signedSince) { signedSince = Date.now(); return; }
-        if (Date.now() - signedSince < settleMs) return;
-        finish({ ok: true, connected: true, cookies });
-        // Closing right away keeps the browser from rotating the cookies we saved
-        cdp.send('Browser.close').catch(() => {}).finally(() => cdp.close());
-      };
-      timer = setInterval(tick, 1000);
-    });
-  })();
-  return { promise, cancel: () => cancelFn() };
+  }
+  // Elsewhere the lock is a symlink to "<host>-<pid>" that can outlive the
+  // browser, so check that the process still exists.
+  let target;
+  try { target = fs.readlinkSync(path.join(profileDir, 'SingletonLock')); } catch { return false; }
+  const pid = Number(String(target).split('-').pop());
+  if (!pid) return true;
+  try { process.kill(pid, 0); return true; } catch (err) { return err.code === 'EPERM'; }
 }
 
-module.exports = { findBrowser, run };
+// Ask the browser to close normally, so it writes its cookies to disk.
+function closeGracefully(child) {
+  if (!child || child.exitCode !== null) return;
+  try {
+    if (process.platform === 'win32') spawn('taskkill', ['/pid', String(child.pid), '/T'], { windowsHide: true });
+    else process.kill(child.pid, 'SIGTERM');
+  } catch { /* already closed */ }
+}
+
+// Starts the profile invisibly with a local DevTools port, reads every
+// cookie, then shuts it down. No web page is loaded in this step.
+async function readCookies(browser, profileDir) {
+  try { fs.rmSync(path.join(profileDir, 'DevToolsActivePort'), { force: true }); } catch { /* ignore */ }
+  const child = spawn(browser.path, [
+    '--headless=new',
+    `--user-data-dir=${profileDir}`,
+    '--remote-debugging-port=0',
+    '--no-first-run',
+    '--no-default-browser-check',
+    'about:blank'
+  ], { stdio: 'ignore', windowsHide: true });
+  child.on('error', () => {});
+  const cdp = await waitForEndpoint(profileDir, child);
+  if (!cdp) {
+    try { child.kill(); } catch { /* ignore */ }
+    throw new Error(`não foi possível abrir o ${browser.name} em segundo plano`);
+  }
+  try {
+    return (await cdp.send('Storage.getCookies')).cookies.map(toCookie);
+  } finally {
+    await cdp.send('Browser.close').catch(() => {});
+    cdp.close();
+    for (let i = 0; i < 20 && child.exitCode === null; i++) await sleep(150);
+    if (child.exitCode === null) { try { child.kill(); } catch { /* ignore */ } }
+  }
+}
+
+// Sign-in in two steps, so Google never sees a browser under remote control:
+//   1. open the login page in a completely normal browser window (Vela's own
+//      profile, no DevTools port, no automation flags) and wait until the
+//      user closes it, or calls finish();
+//   2. read that profile's cookies with readCookies().
+// Resolves { ok, connected, cookies } or { ok, canceled }.
+function run({ browser, profileDir, url, isDone, onPhase = () => {} }) {
+  let child = null;
+  let canceled = false;
+  let finishRequested = false;
+
+  const promise = (async () => {
+    fs.mkdirSync(profileDir, { recursive: true });
+    // Close a login window left open by an earlier attempt
+    if (profileInUse(profileDir)) {
+      const leftover = readEndpoint(profileDir);
+      if (leftover) {
+        try { const c = await Cdp.connect(leftover, 1500); await c.send('Browser.close').catch(() => {}); c.close(); } catch { /* not reachable */ }
+      }
+      for (let i = 0; i < 20 && profileInUse(profileDir); i++) await sleep(250);
+    }
+
+    child = spawn(browser.path, [
+      `--user-data-dir=${profileDir}`,
+      '--no-first-run',
+      '--no-default-browser-check',
+      '--new-window',
+      url
+    ], { stdio: 'ignore', windowsHide: false });
+    child.on('error', () => {});
+    const exited = new Promise(r => child.on('exit', r));
+    onPhase('login');
+
+    // Wait until the browser is gone (closed by the user, or by finish/cancel).
+    await exited;
+    while (profileInUse(profileDir) && !canceled) await sleep(500);
+    if (canceled && !finishRequested) return { ok: true, connected: false, canceled: true };
+
+    onPhase('reading');
+    await sleep(500);
+    const cookies = await readCookies(browser, profileDir);
+    return isDone(cookies) ? { ok: true, connected: true, cookies } : { ok: true, connected: false };
+  })();
+
+  return {
+    promise,
+    // "Concluir login": close the browser and read what it saved
+    finish: () => { finishRequested = true; closeGracefully(child); },
+    cancel: () => { canceled = true; closeGracefully(child); }
+  };
+}
+
+module.exports = { findBrowser, run, readCookies };
