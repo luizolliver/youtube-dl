@@ -1,0 +1,34 @@
+name: Relatar um problema
+description: Algo não funcionou como deveria
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: O que aconteceu
+      description: Descreva o problema e o que você esperava que acontecesse.
+    validations:
+      required: true
+  - type: input
+    id: link
+    attributes:
+      label: Link do vídeo
+      description: Só se for público. Não cole links privados.
+  - type: textarea
+    id: error
+    attributes:
+      label: Mensagem de erro
+      description: Copie a mensagem que apareceu no Vela.
+  - type: input
+    id: version
+    attributes:
+      label: Versão do Vela e do motor
+      description: "Em Configurações. Exemplo: Vela 1.0.0, yt-dlp 2026.10.21"
+    validations:
+      required: true
+  - type: checkboxes
+    id: updated
+    attributes:
+      label: Antes de enviar
+      options:
+        - label: Atualizei o motor em Configurações → Motor de download → Verificar atualização

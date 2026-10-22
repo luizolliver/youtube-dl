@@ -1,0 +1,62 @@
+# Builds the Windows installer on a Windows runner. A pushed tag such as
+# v1.0.0 publishes it as a GitHub Release; running the workflow by hand
+# only uploads the installer as a build artifact.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check sources
+        run: npm run check
+
+      - name: Check that the tag matches package.json
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          version=$(node -p "require('./package.json').version")
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "A tag $GITHUB_REF_NAME não bate com a versão $version do package.json"
+            exit 1
+          fi
+
+      - name: Build installer
+        run: npm run dist
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: Vela-Downloader-Setup
+          path: dist/*.exe
+          if-no-files-found: error
+
+      - name: Release notes from CHANGELOG.md
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: node scripts/release-notes.js "$GITHUB_REF_NAME" > release-notes.md
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Vela Downloader ${{ github.ref_name }}
+          body_path: release-notes.md
+          files: dist/*.exe

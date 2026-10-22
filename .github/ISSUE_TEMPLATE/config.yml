@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Problema em um site específico
+    url: https://github.com/yt-dlp/yt-dlp/issues
+    about: Se o erro também acontece no yt-dlp direto, relate ao projeto yt-dlp.

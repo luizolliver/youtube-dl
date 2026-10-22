@@ -1,0 +1,11 @@
+name: Sugerir uma melhoria
+description: Uma ideia para o Vela
+labels: [enhancement]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: O que você gostaria
+      description: Descreva a melhoria e em que situação ela ajudaria.
+    validations:
+      required: true

@@ -1,17 +1,25 @@
 {
   "name": "vela-downloader",
   "productName": "Vela",
-  "version": "0.1.0",
-  "description": "Baixe vídeos e playlists do YouTube e de centenas de outros sites, com a qualidade que você escolher.",
+  "version": "1.0.0",
+  "description": "Vela Downloader: baixe vídeos e playlists do YouTube e de mais de mil sites, com a qualidade que você escolher.",
   "main": "src/main/main.js",
-  "author": "Luiz",
+  "author": "luizolliver",
   "license": "MIT",
+  "homepage": "https://github.com/luizolliver/youtube-dl#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/luizolliver/youtube-dl.git"
+  },
+  "bugs": {
+    "url": "https://github.com/luizolliver/youtube-dl/issues"
+  },
   "private": true,
   "scripts": {
     "start": "electron .",
     "fetch-binaries": "node scripts/fetch-binaries.js",
-    "dist": "node scripts/fetch-binaries.js --platform=win32 && electron-builder --win --x64",
-    "check": "node --check src/main/main.js && node --check src/main/ytdlp.js && node --check src/main/downloads.js && node --check src/main/settings.js && node --check src/main/sites.js && node --check src/preload/preload.js && node --check src/renderer/app.js"
+    "dist": "node scripts/fetch-binaries.js --platform=win32 && electron-builder --win --x64 --publish never",
+    "check": "node --check src/main/main.js && node --check src/main/ytdlp.js && node --check src/main/downloads.js && node --check src/main/settings.js && node --check src/main/sites.js && node --check src/main/auth.js && node --check src/main/browser-login.js && node --check src/preload/preload.js && node --check src/renderer/app.js && node --check scripts/fetch-binaries.js && node --check scripts/release-notes.js"
   },
   "dependencies": {
     "ffmpeg-static": "^5.3.0"
@@ -23,7 +31,7 @@
   "build": {
     "appId": "com.vela.downloader",
     "productName": "Vela",
-    "copyright": "© 2026 Luiz",
+    "copyright": "© 2026 luizolliver",
     "directories": {
       "output": "dist",
       "buildResources": "build"
@@ -46,6 +54,14 @@
           "yt-dlp*",
           "!*.download"
         ]
+      },
+      {
+        "from": ".",
+        "to": "licenses",
+        "filter": [
+          "LICENSE",
+          "THIRD_PARTY_NOTICES.md"
+        ]
       }
     ],
     "win": {
@@ -58,7 +74,7 @@
         }
       ],
       "icon": "build/icon.ico",
-      "artifactName": "Vela-Setup-${version}.${ext}"
+      "artifactName": "Vela-Downloader-Setup-${version}.${ext}"
     },
     "nsis": {
       "oneClick": false,
@@ -66,7 +82,7 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Vela",
+      "shortcutName": "Vela Downloader",
       "language": "1046",
       "installerIcon": "build/icon.ico",
       "uninstallerIcon": "build/icon.ico"
